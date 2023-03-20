@@ -1,0 +1,231 @@
+---
+output:
+  html_document: default
+---
+## 6 Neural Network
+
+In this section we will apply Neural Network to our data set. Neural Network are an extremely powerful Machine Learning Algorithm used to build predictions. We will use different packages like {nnet}, {neuralnet} and {RandomForest} on the variable 'decision'. 
+
+```{r, warning=FALSE, message=FALSE, include=FALSE}
+data.spd <- read.csv("../Data/cleaned_speed_dating.csv")
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+data.spd.num<-data.spd                                         #do not contain factor
+
+cols <- c("match","gender", "decision","goal", "first_round", "last_round", "same_field", "same_origin")
+data.spd[cols] <- lapply(data.spd[cols], factor)
+
+data.nn<-dplyr::select(data.spd, -c('iid','pid','match','decision_count'))              #contains factor
+
+d.dating<-dplyr::select(data.spd.num, -c('iid','pid','match','decision_count'))
+normalize<- function(x) {
+  return ((x-min(x))/(max(x)-min(x)))
+}
+data.normal<-as.data.frame(lapply(d.dating,normalize))          #normalized data
+
+```
+
+### 6.1 nnet 
+```{r, warning=FALSE, message=FALSE}
+#split data into train and test
+set.seed(1)
+index <- createDataPartition(data.nn$decision, p=.80, list = FALSE)
+
+train <- data.nn[index,]
+test <- data.nn[-index,]
+
+#encoding categorical variable because nn needs each category to have its own column with dummy variable 0/1
+train$gender = class.ind(train$gender)
+train$goal = class.ind(train$goal)
+
+test$gender = class.ind(test$gender)
+test$goal = class.ind(test$goal)
+```
+
+We use a for loop to to find the optimal size
+
+```{r forloop, message=FALSE, warning=FALSE, results="hide"}
+#initialize variables
+best_acc <- 0
+size_best_acc <-0
+best_sens <- 0
+size_best_sens <- 0
+
+#try size 1 to 20 to find best accuracy/ sensitivity
+for (i in 1:20){
+  set.seed(123) 
+  dating.net <- nnet(decision~ ., data = train, size=i, maxit=100, range=0.1, decay=5e-4) #fit model
+  pred <- predict(dating.net, test, type = "class") 
+  nn <- table(pred=pred, true=test$decision) 
+  accuracy <- sum(diag(nn))/sum(sum(nn))  
+  sensitivity <- nn[1, 1]/(nn[1, 1] + nn[1, 2]) 
+  if (accuracy > best_acc){ 
+    best_acc <- accuracy
+    size_best_acc <- i
+  }
+  if (sensitivity > best_sens){ 
+    best_sens <- sensitivity
+    size_best_sens <- i
+  }
+  }
+```
+
+```{r echo=FALSE, error=FALSE, message=FALSE, warning=FALSE}
+#show the result
+cat(" Best accuracy", best_acc, " is from model with size =", size_best_acc, "\n",
+    "Best sensitivity", best_sens, " is from model with size =", size_best_sens)
+```
+
+Since we would like to focus on sensitivity, the model with size = 9 is better. 
+The model is as follows:
+
+```{r message=FALSE, warning=FALSE, error=FALSE, results='hide'}
+dating.net <- nnet(decision~ ., data = train, size=9, maxit=100, range=0.1, decay=5e-4)
+```
+
+This neural network model includes 9 units in the hidden layer. This number of unit is chosen because it gives the best sensitivity when compared with models with 1 to 20 units.
+
+```{r echo=FALSE}
+#check accuracy and specificity
+pred<- predict(dating.net, test, type = "class") 
+conf <- confusionMatrix(as.factor(test$decision), as.factor(pred))
+conf$table
+acc<-round(conf$overall["Accuracy"]*100,2)
+sens<-round(conf$byClass["Sensitivity"]*100,2)
+spec<-round(conf$byClass["Specificity"]*100,2)
+tab<-matrix(c(acc,sens,spec), ncol=3)
+colnames(tab)<-c("Accuracy [%]","Sensitivity [%]","Specificity [%]")
+rownames(tab)<-c("")
+tab<-as.table(tab)
+tab
+```
+
+As we can see we have promising results, this model outperformed all GLM and SVM models. We will investigate other Neural Network, to see if we can have better result or meaningful information, like with the algorithm Random Forest.
+
+### 6.2 Random Forest
+*Normalization (scaling) is not necessary for Random Forest and the algorithm support factors.*
+
+Random Forest is a friendly machine learning algorithm with good result in classifications. We will explore this neural network and its features to catch variable importance and draw valuable conclusion for our customers, our business and other model improvements. 
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+set.seed(123)
+trainIndex <- createDataPartition(data.nn$decision, p=0.8, list=F, times= 1)
+train <- data.nn[trainIndex,]
+test <- data.nn[-trainIndex,]
+test.truth <- data.nn[-trainIndex,]$decision
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+set.seed(12)
+rf_dating<-randomForest(decision~., train, importance=TRUE)
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+set.seed(12)
+pred1<-predict(rf_dating, test)
+conf<-confusionMatrix(pred1, test$decision, positive='1')
+conf$table
+acc<-round(conf$overall["Accuracy"]*100,2)
+sens<-round(conf$byClass["Sensitivity"]*100,2)
+spec<-round(conf$byClass["Specificity"]*100,2)
+tab<-matrix(c(acc,sens,spec), ncol=3)
+colnames(tab)<-c("Accuracy [%]","Sensitivity [%]","Specificity [%]")
+rownames(tab)<-c("")
+tab<-as.table(tab)
+tab
+```
+
+This model yield slightly better accuracy and specificity compared to the nnet model, but lower sensitivity. Unfortunately, with Random Forest we are limited in degree of complexity, hence it is difficult to improve this model. However, there is interesting features with this algorithm, like variable importance and partial dependence graph.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.align="center", fig.width=8, fig.height=4}
+varImpPlot(rf_dating, main='Variable Importance of Random Forest model')
+```
+
+*MeanDecreaseAccuracy = decrease in accuracy if the variable is deleted*
+*MeanDecreaseGini = In classification model, the loss function is gini-impurity.It measure the decrease in loss function of the variable if deleted from the model.*
+
+The three most important variables are 'attractivity', 'like' and 'fun'. We have seen in the GLM models that all those predictors were significant at the maximum level of confidence. Therefore, our models are consistent with each other and we can confidently conclude the importance of those predictors. Let's study how the behavior of the 'attractivity' variable on the decision process of a person.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8, fig.height=3.5, fig.align="center"}
+partialPlot(rf_dating,train, attr, "1", main="Partial Dependence Plot on Attractivity")
+```
+
+This graph tells us, that if someone rate his/her partner over 4 there is linearly increasing chance to say 'yes' for another date. Moreover, we can observe that grades 8 to 10 do not make a big difference.
+With those graph we gain valuable understanding on the decision process in partner selection. We can use those conclusion for customer coaching but also for business development, such as improving model's performance. As you will see below...
+
+### 6.3 neuralnet
+*must contain only numeric values -> no factor*
+*recommended to normalized data, not required!*
+
+We will use the package {neuralnet} as the neural network model but also as our best performing model. If we include all the predictors the model is extremely time consuming with more than one hidden layer (~20-30min). Therefore, we will train a simpler neural network (8 predictors instead of 20). To reduce the number of predictor and maximizing the model accuracy, there is a method called PCA, Principal Component Analysis. This is an advance concept so we will use the conclusion made in the other models, GLM, SVM and Random Forest. 
+We have selected: 'like', 'gender', 'attr_slef' (personal score on attractivity), 'fun_self' (personal score on funny), 'attr' (grade partner on attractivity), 'fun' (grade partner score on funny), 'shar' (shared interest), 'goal' (reasons for speed dating)
+
+```{r ,message=FALSE, warning=FALSE, include=FALSE}
+data.normal<-dplyr::select(data.normal, c('decision','like','gender','attr_self','fun_self','attr','fun','shar','goal'))
+set.seed(123)
+trainIndex <- createDataPartition(data.normal$decision, p=0.8, list=F, times= 1)
+train <- data.normal[trainIndex,]
+test <- data.normal[-trainIndex,]
+test.truth <- data.normal[-trainIndex,]$decision
+```
+```{r echo=TRUE, warning=FALSE, message=FALSE}
+set.seed(123)
+nn<-neuralnet(decision~., train, hidden=c(3,4,1),linear.output=FALSE,
+              stepmax=50000, threshold = 0.05)
+```
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+plot(nn)
+```
+
+
+```{r echo=FALSE, warning=FALSE, ,message=FALSE}
+set.seed(123)
+pred_result <- compute(nn, test)
+results <- data.frame(actual = test.truth, prediction = pred_result$net.result)
+pred<-ifelse(pred_result$net.result>0.3,1,0)
+conf<-confusionMatrix(as.factor(pred),as.factor(test.truth), positive='1')
+conf$table
+acc<-round(conf$overall["Accuracy"]*100,2)
+sens<-round(conf$byClass["Sensitivity"]*100,2)
+spec<-round(conf$byClass["Specificity"]*100,2)
+tab<-matrix(c(acc,sens,spec), ncol=3)
+colnames(tab)<-c("Accuracy [%]","Sensitivity [%]","Specificity [%]")
+rownames(tab)<-c("")
+tab<-as.table(tab)
+tab
+```
+
+90% of sensitivity!!! Out of 584 decision 'yes', 525 were predicted correctly by the model. The model missed or misinterpreted 59 decision 'yes' (False Negative). 
+We are all very happy and proud to present you, our final decision model, based on Neural Network technology. Predicting your partner decision with 90% of accuracy. Now, we are able to predict the decision of both partner, we are able to predict if a 'match' will happen between two people. 
+
+*Disclaimer: Need to run a robust analysis, like a cross validation to confirm the model sensitivity is truly 90%, that it is not due to random effect.*
+
+### 6.4 General Conclusion on Neural Network
+
+Neural Network such as neuralnet have a huge potential in prediction performance, due to the unlimited complexity. However, those algorithm have 2 drawbacks. It is extremely time consuming when applied to big and complex data. It is also hard to understand and apply such algorithm without background knowledge in Machine Learning. Due to those issues, it is hard to take advantage of those multiple improvement combinations, even machine learning expert still have hard times understanding how to arrange hidden layers architecture. Despite, those difficulties, those models yield the best performance results.
+
+**Pros NN model:**
+
+* *Performance*: handle complex data structure and outperform GLM and SVM
+* *Build Knowledge*: possibility to gain valuable information from NN models
+* *Freedom*: infinite possibility of combination to improve models
+
+**Cons NN model:**
+
+* *Complexity*: hard to understand/improve, require a advanced knowledge
+* *Slow*: time consuming
+
+#### Performance summary
+
+
+info          | Nnet       | Random Forest | Neuralnet    | GLM       | SVM Radial
+------------- | ---------- | ------------- | ------------ | --------- | ----------
+Accuracy:     | **78.90 %**|       79.62  %|      73.35 % |   77.79 % |    78.18 %
+Sensitivity:  |     82.33 %|       77.37  %|   **89.90 %**|   69.47 % |    77.02 %
+Specificity:  |     75.21 %|       81.49  %|      58.99 % |**84.69 %**|    79.15 %
+
+
+**Best model:** Neuralnet (8 predictors, hidden layers=c(3,4,1))
+
+                      

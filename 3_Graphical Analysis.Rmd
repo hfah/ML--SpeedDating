@@ -1,0 +1,103 @@
+---
+output:
+  html_document: default
+---
+## 3 Graphical Analysis
+
+In this section we perform various graphical analysis to examine the data. Using graphs and boxplots are an effective way to visualize data patterns and provides key insights into the data. This will help to understand the patterns and also the correlation between process parameters.
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE, results="hide"}
+d.dating <- read.csv("../Data/cleaned_speed_dating.csv")
+d.dating %>%
+  glimpse()
+```
+
+### 3.1 Data Exploration
+
+We look into the distribution & relative frequency for Total like rating and number of mutual yes on decision count.
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE, fig.width=5, fig.height=3, fig.align='center'}
+par(mfrow=c(1,2))
+
+hist(d.dating$like_total, xlab = "Total Like", main = "Total Like Rating", col = "cornflowerblue") 
+
+hist(d.dating$decision_count, xlab = "Decision Count", main = "# of Decisions", col = "cornflowerblue")
+
+```
+
+we notice that 'like_total' follows more of a normal distribution while 'decision_count' follows more of a binomial or Poisson distribution
+
+### 3.2 Box Plots
+
+Here we apply all the binary parameters / columns as factors and test their effect on the like rating and decision for a date
+
+```{r, echo=TRUE, results='hide'}
+cols <- c("gender","match","goal", "decision", "first_round", "last_round", "same_field", "same_origin")
+d.dating[cols] <- lapply(d.dating[cols], factor)
+
+```
+
+The graphs below show effect of goals and gender on number of times a participant says yes to the partner.
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE, fig.width=6, fig.height=3, fig.align='center'}
+x <- ggplot(data = d.dating,
+       mapping = aes(y = decision_count,
+                     x = gender)) +
+      geom_hline(yintercept = 0) +
+      geom_boxplot()
+
+y <- ggplot(data = d.dating,
+       mapping = aes(y = decision_count,
+                     x = goal)) +
+  geom_boxplot()
+
+plot_grid(x,y)
+```
+
+Note that with male (gender1) have higher count (maybe not as picky).
+
+Next, we want to see whether two participants will like each other more when they are from the 
+same field, origin or when they meet in the first round or last round.
+
+```{r, echo=FALSE,fig.width=6, fig.height=3, fig.align='center'}
+box_plot = function(x, y, fill) {
+  ggplot(na.omit(d.dating), aes_string(x = x, y = y, fill=NULL) ) +
+    geom_boxplot()
+}
+
+like_total_same_field = box_plot("same_field", "like_total") +
+  scale_x_discrete(labels=c("not same field","same field"))+ 
+  labs(y="like_total", x = NULL)
+
+like_total_same_origin = box_plot("same_origin", "like_total") + 
+  scale_x_discrete(labels=c("not same origin","same origin"))+ 
+  labs(y="like_total", x = NULL)
+
+like_total_first_round = box_plot("first_round", "like_total") + 
+  scale_x_discrete(labels=c("not first_round","first_round"))+ 
+  labs(y="like_total", x = NULL)
+
+like_total_last_round = box_plot("last_round", "like_total") + 
+  scale_x_discrete(labels=c("not last_round","last_round"))+ 
+  labs(y="like_total", x = NULL)
+
+plot_grid(like_total_same_field, like_total_same_origin, like_total_first_round, like_total_last_round)
+
+```
+
+It seems that people tend to like each other more when they are from the same origin. For people from the same field and meet in the first or last round, they also tend to like each other a bit more. Yet, we can not judge whether there is a significant difference from the plots. 
+
+### 3.3 Correlation Matrix
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE, fig.width=3, fig.height=2, fig.align='center'}
+require(GGally)
+
+d.dating %>% 
+  dplyr::select(like,fun,amb,attr,
+         sinc,intel,shar) %>% 
+  na.omit() %>%
+  ggcorr(palette = "RdBu", label = TRUE,
+         hjust = 0.75, label_size = 3, nbreaks = 5)
+```
+
+Note a strong correlation between like with funny, attractiveness & shared interests

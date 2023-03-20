@@ -1,0 +1,109 @@
+---
+output:
+  html_document: default
+---
+## 8 GAM
+
+We continue using the test and train datasets defined previously for LM model.
+
+```{r, include=FALSE}
+speed.dating <- read.csv("../Data/cleaned_speed_dating.csv")
+
+cols <- c("gender", "decision", "first_round", "last_round", "same_field", "same_origin", "goal")
+speed.dating[cols] <- lapply(speed.dating[cols], factor)
+
+data.lm <- speed.dating %>% dplyr::select(-c(iid, match, pid, decision, decision_count, like))
+
+set.seed(123)
+index <- createDataPartition(data.lm$like_total, p=.80, list = FALSE)
+
+train <- data.lm[index,]
+test <- data.lm[-index,]
+```
+
+### 8.1 Fit GAM
+
+Let's fit a GAM to the train data by allowing non-linear, smooth effect on the coninuous prdictors.
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+#maximum df is specified with k=4
+
+gam.like <- gam(like_total ~ gender + s(attr_self, k=4) + s(intel_self, k=4) + 
+                             s(amb_self, k=4) + s(attr, k=4) + s(sinc, k=4) + 
+                             s(intel, k=4) + s(fun, k=4) + s(shar, k=4) + goal + 
+                             first_round + last_round + same_field, 
+                  data = train)
+
+summary(gam.like)
+```
+
+The summary output shows that only attr_self, intel_self and attr have non-linear effects between quadratic and cubic on 
+like_total. And amb_self doesn't have a significant effect on the response variable in this model. 
+
+### 8.2 Refit Model
+
+Now we refit the model according to findings from the summary output.
+
+```{r, warning = FALSE, message=FALSE, echo=FALSE}
+gam.like <- gam(like_total ~ gender + s(attr_self, k=4) + s(intel_self, k=4) + 
+                s(attr, k=4) + sinc + intel + fun + shar + goal + 
+                  first_round + last_round + same_field, 
+                  data = train)
+
+summary(gam.like)$formula
+```
+
+Compare predictions to test data and calculate MAPE
+
+```{r, warning = FALSE, message=FALSE}
+pred.gam <- predict(gam.like, newdata = test)
+
+mape <- mean(abs((pred.gam - test$like_total)/test$like_total)) * 100
+
+```
+
+```{r, echo=FALSE, eval=TRUE}
+cat("Mean absolute percentage error of the model is ", mape)
+```
+### 8.3 Comparison of Models and Conclusion
+
+We can see from the table below that the three models have very similar results. 
+```{r table2, echo=FALSE, message=FALSE, warnings=FALSE, results='asis'}
+tabl <- " 
++---------------+---------------+
+|                  MAPE         | 
++===============+===============+
+| LM            | 15.68773      | 
++---------------+---------------+
+| Polynomials   | 15.72326      | 
++---------------+---------------+
+| GAM           | 15.71625      | 
++---------------+---------------+
+"
+cat(tabl)
+```
+
+
+The Linear Model shown below has the lowest MAPE.
+
+```{r, echo=FALSE, eval=TRUE}
+lm.interact <- lm(like_total ~ attr_self + intel_self + amb_self + 
+    attr + sinc + intel + fun + shar + goal + first_round + last_round + 
+    same_field + attr_self:attr, data = train)
+formula(lm.interact)
+```
+
+Below are the coefficients of the model.
+
+```{r, echo=FALSE, eval=TRUE}
+summary(lm.interact)$coefficients
+```
+
+**Interpretation of Linear Model**:
+
+* intel_self , amb_self and attr_self have negative coefficients, this means for each point more a participant rate himself/herself on 
+his/her intelligence, ambition and attractiveness, the like_total drops by -0.11, -0.04 and -0.06 point respectively.
+* first_round1 has a coefficient of 0.43, meaning when two participants meet in the first round, the like_total is 0.43 point higher.
+* last_round1 has a coefficient of 0.25, meaning when two participants meet in the last round, the like_total is 0.25 point higher.
+* last_round1 has a coefficient of 0.47, meaning when two participants are from the same field, the like_total is 0.47 point higher.
+* Among all the goal categories, goal 1 and 2 have significant effect on like_total

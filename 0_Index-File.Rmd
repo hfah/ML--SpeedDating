@@ -1,0 +1,44 @@
+---
+title: "The Algorithm to True Love"
+author: "Alina Eckstein, Hossam Fahmy, Agnes Lei, Nathan Rohrbach (L1541695)"
+date: "07.01.2022"
+output:
+  html_document: default
+---
+
+\tableofcontents
+
+```{r, echo=FALSE}
+setwd("C:/Users/Alina/OneDrive - Hochschule Luzern/Machine Learning Project/Eckstein_Fahmy_Lei_Rohrbach_L1541695")
+```
+
+```{r child = '1_Use Case.Rmd'}
+```
+
+```{r child = '2_Data Preparation.Rmd'}
+```
+
+```{r child = '3_Graphical Analysis.Rmd'}
+```
+
+```{r child = '4_GLM.Rmd'}
+```
+
+```{r child = '5_SVM.Rmd'}
+```
+
+```{r child = '6_NN.Rmd'}
+```
+
+```{r child = '7_LM.Rmd'}
+```
+
+```{r child = '8_GAM.Rmd'}
+```
+
+```{r child = '9_Conclusion.Rmd'}
+```
+
+```{r child = '10_Optimization.Rmd'}
+```
+

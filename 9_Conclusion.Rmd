@@ -1,0 +1,88 @@
+---
+output:
+  html_document: default
+---
+## 9 Conclusion
+
+```{r, include=FALSE}
+data <- read.csv("../Data/cleaned_speed_dating.csv")
+cols <- c("gender", "decision", "first_round", "last_round", "same_field", "same_origin", "goal")
+data[cols] <- lapply(data[cols], factor)
+speed.dating <- data %>% dplyr::select(-c(iid, match, pid, decision_count))
+
+set.seed(1)
+index <- createDataPartition(speed.dating$decision, p=.80, list = FALSE, times= 1)
+train <- speed.dating[index,]
+test <- data[-index,]
+
+library(nnet)
+```
+
+### 9.1 A Function to Predict Match
+The ultimate goal of our model is to successfully match people who like each other. Therefore,a function is created to predict matches by comparing the predicted decisions made by two participants.
+
+```{r, warning=FALSE, message=FALSE}
+match_prediction <- function(dataset, model, pred_type=c("response", "terms")) 
+                    {
+                dataset$pred_decision <- predict(model, dataset, type = pred_type)
+                pred_df <- dataset %>%
+                mutate(pair_number = case_when(iid < pid ~ paste(iid,"&",pid), 
+                                     (pid < iid ~ paste(pid,"&",iid))))%>%
+                group_by(pair_number) %>% 
+                filter(n()>1)%>%         
+                group_by(pair_number) %>%
+                mutate(pred_decision = as.numeric(as.character(pred_decision)))%>%
+                mutate(pred_match = prod(pred_decision)) %>%
+                distinct(pair_number, .keep_all = TRUE) %>%
+                dplyr::select(c(pair_number, match, pred_match))
+                    
+                pred_df 
+                    }
+```
+
+As a demonstration, we choose to apply nnet to the function as its prediction is more straightforward.
+
+```{r, warning=FALSE, message=FALSE, results='hide'}
+set.seed(123)
+dating.net <- nnet(decision~ ., data = train , size=9, maxit=100, range=0.1, decay=5e-4)
+
+```
+```{r, warning=FALSE, message=FALSE}
+#apply match_prediciton function
+nnet_match <- (match_prediction(test, dating.net, "class"))
+
+head(nnet_match)
+```
+
+We can see that four out of five predictions are correctly made. Now let's check the accuracy of all the predictions.
+
+```{r, warning=FALSE, message=FALSE}
+nnet_match_accuracy <- sum(nnet_match$match == nnet_match$pred_match)/nrow(nnet_match)
+cat("The match prediction accurarcy is ", round(nnet_match_accuracy*100,2), "%")
+```
+
+Hence, we have been able to predict the match and verify the accuracy of the forecast. 
+
+### 9.2 General Conclusion
+
+Whether it is on dating apps, using the help of agencies or in real life – finding the right partner for a relationship is always a difficult task.
+With this project we aimed to simplify this quest by creating a model which can predict whether two people would likely be a good match or not. With the help of data from a speed dating event we wanted to find the right variables on which we could base the forecasting algorithm. Such a model would be of tremendous benefit for all companies, events and agencies focusing on matchmaking, as it can automate the service process and help finding the right partner match for clients in a much faster, cheaper, and easier way.
+
+Based on the dataset that we used, we understood that by predicting the variable “decision”, which represented whether a person wanted to meet their dating partner again or not, it would allow us to identify matches between two persons, given that the decision on both parts would be a “yes”. Therefore, the applied forecasting methods were aimed to predict this variable. 
+The models which allowed us to develop a successful prediction were the GLM, SVM, and Neural Network model.
+
+Starting with the GLM model, we applied three simulations:
+* Simple model with 5 predictors
+* Medium complex model with 20 predictors
+* Complex model with 20 predictors and 4 interactions
+
+The medium complex model turned out to be the best performing one. The more important result, however, was the knowledge that we gained by identifying and analysing interactions, significance, and effects of various predictors. Hence, we were able to better understand the human psychology behind the partner selection process.
+We then used the gained knowledge in the other forecasting models (SVM and NN) which helped us to achieve a higher success rate.
+
+When applying the SVM model, we found it more difficult to develop a good forecast due to the subjective nature of our data, given that it is heavily based on qualitative measures and human behaviour, which is highly abstract and therefore hard to classify or predict.
+
+With the Neural Network, however, we finally found a model that was able to handle the complex traits of our dataset and to create a good forecast with a 90% success rate.
+Hence, the success of our project was due to a beneficial interplay of knowledge, that we were able to gain in the process, and performance, which was achieved after applying the knowledge to the right model.
+
+With this, we have achieved our goal and created a Neural Network model which predicts the decision of persons whether they would want to meet their counterpart again or not and, therefore, whether two persons can be a match or not. We believe that this model can be of great help in the realm of matchmaking and will be a very useful tool for creating new Love Stories.
+

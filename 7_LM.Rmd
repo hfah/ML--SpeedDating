@@ -1,0 +1,176 @@
+---
+output:
+  html_document: default
+---
+## 7 Linear Model
+In this part, we want to predict the response variable like_total, which is the sum of the rating from a participant and his/her partner on each other based on the question "Overall, how much do you like this person?". 
+The dataset is split into train(80%) and test(20%) with createDataPartition(). LM, Polynomials and GAM are fitted and their respective MAPEs are calculated to compare accuracy of the models. 
+```{r, include=FALSE}
+speed.dating <- read.csv("../Data/cleaned_speed_dating.csv")
+```
+
+### 7.1 Predictions on like_total
+
+```{r, echo=FALSE, eval=FALSE}
+# This display option allows to enter code which will NOT be displayed in the paper output. Can be used to import the data set or access R packages, e.g.:
+
+
+cols <- c("gender", "decision", "first_round", "last_round", "same_field", "same_origin", "goal")
+speed.dating[cols] <- lapply(speed.dating[cols], factor)
+
+
+# Here you can enter your code just as in a usual R file. When you want to run the code in this particular grey box, press the green triangle play botton in the upper right corder of this grey box.
+
+# To run all chunks (grey code fields) above prior to this chunk, press the downward turned triangle with the green line in the upper right corner of this grey box.
+```
+
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+data.lm <- speed.dating %>% dplyr::select(-c(iid, gender, match, pid, decision, decision_count, like))
+
+set.seed(123)
+index <- createDataPartition(data.lm$like_total, p=.80, list = FALSE)
+
+train <- data.lm[index,]
+test <- data.lm[-index,]
+
+```
+
+First we fit the linear model with like_total as the response variable and all other variables as predictors.
+Then use the drop1() function to test the predictors
+
+```{r, warning=FALSE, message=FALSE}
+lm.like <- lm(like_total ~ ., data = train)
+drop1(lm.like , test = "F")
+
+```
+
+Remove variables which do not have a relevant effect on like_total 
+
+```{r, warning=FALSE, message=FALSE}
+lm.like <- update(lm.like, . ~ . -sinc_self - fun_self
+                                 - amb - same_origin)
+summary(lm.like)$call
+```
+
+Compare predictions to test data and calculate MAPE
+
+```{r, warning=FALSE, message=FALSE}
+pred.lm <- predict(lm.like, newdata = test)
+
+mape <- mean(abs((pred.lm-test$like_total)/test$like_total)) * 100
+cat("Mean absolute percentage error of the linear model is ", mape)
+
+```
+Based on the model, let's try to add interactions attr_self:attr and intel_self:intel 
+```{r, warning=FALSE, message=FALSE}
+lm.like.1 <- lm( like_total ~ attr_self*attr + intel_self*intel + amb_self + 
+                 sinc + fun + shar + goal + first_round + last_round + 
+                 same_field, data = train)
+
+summary(lm.like.1)[4]
+
+```
+The result shows that there's an interaction between attr_self and attr.
+Let's update the model as follows:
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+lm.interact <- lm(like_total ~ attr_self + intel_self + amb_self + 
+    attr + sinc + intel + fun + shar + goal + first_round + last_round + 
+    same_field + attr_self:attr, data = train)
+summary(lm.interact)$call
+```
+We then calculate the MAPE to see if the value gets lower.
+
+```{r, warning=FALSE, message=FALSE}
+pred.interact <- predict(lm.interact, newdata = test)
+
+mape <- mean(abs((pred.interact-test$like_total)/test$like_total)) * 100
+cat("Mean absolute percentage error of the linear model is ", mape)
+
+```
+The result shows the predictions do improve slightly by adding the interaction to the model. 
+
+### 7.2 Residual Analysis
+After fitting the model, we need to validate it by running some tests on the 
+residuals to check whether the assumptions are true. 
+
+**Normality of the residuals** 
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE, fig.height = 3, fig.width = 4, fig.align='center'}
+x <- qqnorm(resid(lm.interact))
+qqline(resid(lm.interact))
+```
+
+The residuals lay quite well on the reference line except a bit of deviation at the begining and end, indicating 
+that the residuals follow a normal distribution. 
+
+
+**Check the mean of residuals and homoscedasticity**
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE,  fig.height = 3, fig.width = 4, fig.align='center'}
+mean_resi <-    ggplot(mapping = aes(y = resid(lm.interact),
+                x = fitted(lm.interact))) +
+                geom_abline(intercept = 0, slope = 0) +
+                geom_jitter(width = 0.25, height = 0.25) +
+                geom_smooth() +
+                ggtitle("Expected value \n of errors")+
+                theme(plot.title = element_text(hjust = 0.5))
+  
+homo <-       ggplot(mapping = aes(y = abs(resid(lm.interact)),
+              x = fitted(lm.interact))) +
+              geom_abline(intercept = 0, slope = 0) +
+              geom_jitter(width = 0.25, height = 0.25) +
+              geom_smooth() +
+              ggtitle("Homoscedasticity") +
+              theme(plot.title = element_text(hjust = 0.5))
+
+plot_grid(mean_resi, homo)
+```
+
+In the Tukey-Anscombe plot above, the smoother is on zero.
+Therefore, we may conclude that the assumption of “error on zero” is true.
+<br>
+The right graph above confirms that the residuals seem to have a constant variance.
+The Linear Regression model seems to be valid as it passes all the diagnostic tests.
+Next, let's try to use polynomials to see if the model can be improved.
+
+### 7.3 Polynomials
+**Plot each predictor against the response variable**
+
+All non-categorical predictors are plotted against like_total 
+
+```{r message=FALSE, warning=FALSE, fig.height = 3, fig.width = 5, fig.align='center', echo=FALSE}
+scatter_plot = function(x, y, z = NULL) {
+  ggplot(data.lm, aes_string(x = x, y = data.lm$like_total, color= z ) ) +
+  geom_jitter(width = 0.25, height = 0.25) +
+  ylab("like_total")
+}
+
+predictors = c("attr_self", "intel_self", "amb_self", "attr", 
+    "sinc", "intel", "fun", "shar")
+
+plots = map(predictors, ~scatter_plot(.x) +
+                       geom_smooth(method = "loess", se = FALSE) )
+
+plot_grid(plotlist = plots)
+
+
+```
+
+The plots show that all the predictors have a linear relationship to the 
+response variable. Still, we try to add a quadratic effect to attr_self 
+and check the result. 
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+lm.like.1 <- lm(like_total ~ intel_self + amb_self + attr + 
+                sinc + intel + fun + shar + goal + 
+                first_round + last_round + same_field +
+              poly(attr_self, degree = 2),
+              data = train)
+summary(lm.like.1)[4]
+```
+
+The summary of the new model confirms that there's no quadratic effect on attr_self as the p-value.
+Therefore, it is not necessary to use polynomials here.
+
+In the next part, we will try explore whether there are complex relationships in the data by using GAM. 

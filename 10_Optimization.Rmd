@@ -1,0 +1,35 @@
+---
+output:
+  html_document: default
+---
+## 10 Optimization
+
+Optimization is a technique used in many spheres to mathematically help finding the best solution to a given problem, out of all possible options. For this, the problem must be formulated in mathematical term and thus three factors must be identified:
+
+* Objective
+* Control Variable
+* Constraints
+
+### 10.1 Example
+
+A big matchmaking agency wants to maximize its profits for two service offerings "Finding your Love" and "Predicting your Chances" which are sold at 33CHF and 28CHF, respectively.
+There are 1150 employees available every day and service "Finding your Love" requires 13 employees while "Predicting your Chances" requires 11 employees. Service "Finding your Love" requires 5 minutes of process time, "Predicting your Chances" requires 6 minutes, and there are only 8 working hours in a day. 
+How many of each services should be processed to maximize profits?
+
+```{r, warning=FALSE, message=FALSE}
+# setting the coefficients of the objective function
+objective <- c(33, 28)
+
+# setting the constraint 
+A <- matrix(c(13, 11, 5, 6, 1, 0, 0, 1),
+            nrow=4, byrow=TRUE) 	        # constraint coefficients
+b <- c(1150, 480, 0, 0)			              # constraint rhs		
+dir  <- c("<=", "<=", ">=", ">=")		      # direction of inequality
+
+optimum <-  lp(direction="max",  objective, A, dir,  b)
+
+cat("The optimal value is", optimum$objval, "\n")
+cat("The optimal solution is (x,y) = (", optimum$solution, ")")
+```
+
+Hence, the maximal profit of roughly 2920 CHF can be achieved by processing 70 "Finding your Love" and 21 "Predicting your Chances" services per day.

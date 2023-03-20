@@ -1,0 +1,233 @@
+---
+output:
+  html_document: default
+---
+## 2 Data Preparation
+
+### 2.1 Cleaning and Manipulation
+The following steps were performed on the original dataset to prepare the data for our analysis and model fitting. <br>
+
+- Create new columns – same_field, same_origin by matching iid and pid 
+
+- Create new columns first_round (1 if the order = 1, 0 if order != 1) and last_round (the maximum order for      each iid is found and compared to the order – 1 if max.order = order, 0 if max.orde =! order) 
+ These two columns are created because during data exploration, it was discovered that people met in the         first or last round tend to like each other more. But since the number of rounds is not the same for all        participants, we cannot just use the order itself as a variable.
+
+- New column like_total is created as a potential response variable. This variable reflects the mutual affection rather than just one sided.
+
+- All columns that we don’t need are dropped 
+
+- The columns which shouldn’t have non-integer are checked and the non-integers are replaced by NA
+
+- Data type of factor variables are adjusted correctly
+
+- Some columns are renamed for easier understanding 
+
+- All NAs dropped 
+
+- Reassign the factors to goal for better interpretation
+    0=other
+    1=To say I did it
+    2=fun night out
+    3=meet new people
+    4=get a date
+    5=serious relationship
+    
+- New column decision_count is added by counting the toal number of decision = 1 for each participant
+
+### 2.2 Load All Packages Needed
+First we load the packages needed for this project
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(dplyr)
+library(tidyverse)
+library(stringr)
+library(ggplot2)
+library(gamlss.add)
+library(ROCR)
+library(pROC)
+library(arm)
+library(sandwich)
+library(msm)
+library(magrittr)
+library(cowplot)
+library(purrr)
+library(mgcv)
+library(knitr)
+```
+
+```{r, warning=FALSE, message=FALSE}
+library(nnet)
+library(neuralnet)
+library(randomForest)
+library(caret)
+library(e1071)
+require(lpSolve)
+```
+
+```{r, include=FALSE}
+#First we import the original dataset and have an overview of how it looks like. 
+
+data <- read.csv("../Data/Speed Dating Data.csv")
+```
+
+```{r, include=FALSE}
+#Beside the *samerace* column, we would also like to know whether a participant and his or her partner are in 
+#the same field or from the same origin. We can find this out by creating a new dataframe which contains columns #*iid, field_cd, from*
+#and then join the two dataframes by matching each participant's partner's id (pid) with the participant's id (iid) in the created dataframe.
+#---create a data frame with info of each id---
+id_info <- data %>% 
+  dplyr::select(iid, field_cd, from)%>% 
+  distinct()
+
+#---join two data frames---
+data <- left_join(data, id_info, by = c("pid" = "iid")) %>% 
+  rename("field_cd" = "field_cd.x", "from" = "from.x",
+         "field_cd_o" = "field_cd.y", "from_o" = "from.y")
+```
+
+
+```{r, include='false'}
+
+#Two new columns *same_field* and *same_origin* are created.
+#---add new columns same field and same origin---
+data <- data %>% 
+  mutate(same_field = if_else(field_cd == field_cd_o, 1, 0))%>%
+  mutate(same_origin = if_else(from == from_o, 1, 0))
+
+data[c("same_field", "same_origin")] <- lapply(data[c("same_field", "same_origin")], as.factor)
+```
+
+
+```{r, include='false'}
+#Next, coulmns *like_total, first_round, last_round* are created to see how much two participants like each other, whether they meet in the first round or last round of the event respectively.
+
+
+#---add new column like_total
+data <- data %>% rowwise() %>%
+  mutate(like_total = like+like_o)
+
+#---add new column first round
+data <- data %>% rowwise() %>%
+  mutate(first_round = ifelse(order == 1, 1, 0))
+
+#---add new column last round
+temp.df <- data %>% group_by(iid) %>% summarise(max_order = max(order))
+temp.df <- full_join(temp.df, data, by = "iid")
+data <- temp.df %>% rowwise() %>% mutate(last_round = ifelse(order == max_order, 1, 0))
+
+data <- dplyr::select (data,-c(max_order))%>%
+  mutate(first_round = as.factor(first_round))%>%
+  mutate(last_round = as.factor(last_round))
+
+```
+
+```{r, include='false'}
+#Now we keep only the columns needed for this project.
+
+cols_to_keep <- c("iid", "match", "pid", "dec", "like", "like_total", "gender", 
+                  "attr3_1", "sinc3_1", "fun3_1", "intel3_1", "amb3_1",
+                  "attr", "sinc", "intel", "fun", "amb", "shar", "goal",
+                  "first_round", "last_round", "same_field", "same_origin")
+
+speed.dating <- data %>% dplyr::select(cols_to_keep)
+
+```
+
+```{r, include='false'}
+#Then a new column *decision_count*, which tells how many "yes" a participant has said to his/her partners, is created.
+
+#---create new column - decision_count---
+temp.df <- filter(speed.dating, dec ==1) %>% 
+           group_by(iid)%>% 
+           tally()
+
+speed.dating <- inner_join(temp.df, speed.dating, by = "iid") %>%
+                rename(decision_count = n)
+
+speed.dating <- speed.dating %>% relocate(decision_count, .after = dec)
+
+```
+
+```{r, include='false'}
+#In columns involving ratings/ factors, all values are supposed to be whole numbers.
+#All the invalid values will be classified as NA.
+
+
+#---Replace non-integers with na in these columns---
+replace.non.integers <- function (x) (x = replace(x, x%%1 != 0, NA))
+
+cols <- c("like", "like_total", "amb", "attr3_1", "sinc3_1", "fun3_1", "intel3_1", 
+          "amb3_1", "attr", "sinc", "intel", "fun", "shar", "goal")
+
+speed.dating[cols] <- lapply(speed.dating[cols], replace.non.integers)
+
+```
+
+```{r, include='false'}
+#We also want to reassign the factor numbers to the goal column for easier interpretation. 
+#For each level up, the goal would be more serious. The table below shows how the goals will be rearranged.
+
+tabl <- " 
+| Goal  |         Description| 
+|------:|-------------------:|
+|   0   |               other| 
+|   1   |     to say I did it|
+|   2   |       fun night out|
+|   3   |     meet new people|
+|   4   |          get a date|
+|   5   |serious relationship|
+"
+cat(tabl)
+```
+
+```{r, include='false'}
+#Let's reassign the factors and check the number of participants for each goal.
+
+#---reassign factors to goal---
+speed.dating <- speed.dating %>%
+                mutate(goal = case_when(
+                  goal == 1 ~ 2,
+                  goal == 2 ~ 3,
+                  goal == 3 ~ 4,
+                  goal == 4 ~ 5,
+                  goal == 5 ~ 1,
+                  goal == 6 ~ 0
+                ))
+
+#---check number of participants for each goal---
+table(speed.dating$goal)
+
+```
+ 
+```{r, include='false'}
+#The last steps are to make sure columns have the correct data type and remove NAs. 
+#Some columns are also renamed for easier interpretation.
+
+#----change data type----
+speed.dating <- speed.dating %>%
+               mutate(gender = as.factor(gender))%>%
+               mutate(dec= as.factor(dec))%>%
+               mutate(goal= as.factor(goal))
+
+#---rename columns---
+speed.dating <- speed.dating %>% 
+                rename(
+                decision = dec,
+                attr_self = attr3_1,
+                sinc_self = sinc3_1,
+                fun_self = fun3_1,
+                intel_self = intel3_1,
+                amb_self = amb3_1
+                )
+
+#---remove NA---
+speed.dating <- na.omit(speed.dating)
+
+```
+
+The final dataset contains the columns below
+
+```{r, echo='false'}
+names(speed.dating)
+
+```

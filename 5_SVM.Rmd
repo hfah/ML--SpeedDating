@@ -1,0 +1,184 @@
+---
+output:
+  html_document: default
+
+---
+## 5 Support Vector Machine
+
+In this section we will apply the Support Vector Machine model as a classification method. We will use only the packages {e1071} and apply different kernel.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+data.spd <- read.csv("../Data/cleaned_speed_dating.csv")
+
+cols <- c("gender", "decision", "first_round", "last_round", "same_field", "same_origin", "goal")
+data.spd[cols] <- lapply(data.spd[cols], factor)
+
+data.svm <- data.spd %>% dplyr::select(-c(iid, match, pid, decision_count))
+
+set.seed(123)
+trainIndex <- createDataPartition(data.svm$decision, p=0.8, list=F, times= 1)
+train <- data.svm[trainIndex, ]
+test <- data.svm[-trainIndex, ]
+test.truth <- test[,1]
+```
+
+### 5.1 SVM e1071: Linear
+We start with the linear kernel and a cost of 10 as basic model and then will improve it. We include the 20 predictors.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+set.seed(123)
+dating.svm.1 <- svm(decision~. , train, kernel="linear", scale= TRUE, cost=10)
+print(dating.svm.1)
+```
+
+We have 2682 Number of support Vectors, that means SVM use half of the training sample to encode the training set. (We have 5030 observations in the training set)
+
+Now, let's evaluate the performance of this basic model with Confusion Matrix.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+set.seed(123)
+test_pred <- predict(dating.svm.1, test, type='class')
+conf<- confusionMatrix(test_pred, test.truth, positive='1')
+conf$table
+acc<-round(conf$overall["Accuracy"]*100,2)
+sens<-round(conf$byClass["Sensitivity"]*100,2)
+spec<-round(conf$byClass["Specificity"]*100,2)
+tab<-matrix(c(acc,sens,spec), ncol=3)
+colnames(tab)<-c("Accuracy [%]","Sensitivity [%]","Specificity [%]")
+rownames(tab)<-c("")
+tab<-as.table(tab)
+tab
+```
+
+The accuracy and specificity are identical to the GLM model, however, the sensitivity improved by 10%. That's a promising result as first basic SVM model.
+
+Now we have two ways to improve the model. First with the Tune method, that tries several values for the cost C, or with Cross Validation we can apply similar improvements. We will apply this Cross Validation method, it generates a graph with accuracy performance and directly fit the improved model. 
+
+```{r fig.align="center", fig.width=7, message=FALSE, warning=FALSE, fig.height=3}
+set.seed(123)
+trctrl <- trainControl(method='repeatedcv', number=10, repeats=3)
+grid <- expand.grid(C=c(0,0.01,0.05,0.1,0.25,0.5,0.75,1,1.25,1.5,1.75, 2.5))
+svm_linear_grid <- train(decision~., data=train, method='svmLinear',
+                         trControl=trctrl,
+                         preProcess=c('center','scale'),
+                         tuneGrid=grid,
+                         tuneLength=10)
+plot(svm_linear_grid)
+```
+
+The optimal SVM model with linear kernel, according to cross validation is the model with a cost equal to 0.05 and here is the performance.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+set.seed(123)
+test_pred <- predict(svm_linear_grid, newdata=test)
+conf<-confusionMatrix(test_pred, test.truth, positive='1')
+conf$table
+acc<-round(conf$overall["Accuracy"]*100,2)
+sens<-round(conf$byClass["Sensitivity"]*100,2)
+spec<-round(conf$byClass["Specificity"]*100,2)
+tab<-matrix(c(acc,sens,spec), ncol=3)
+colnames(tab)<-c("Accuracy [%]","Sensitivity [%]","Specificity [%]")
+rownames(tab)<-c("")
+tab<-as.table(tab)
+tab
+```
+
+Due to multiple predictors, it is hard to plot the model. We chose 'like' and 'attractivity' as those variables were extremely significative in the GLM model.
+
+```{r echo=FALSE, fig.align="center", fig.width=6.5, fig.height=3.50}
+dating.svm.2 <- svm(decision~. , train, kernel="linear", scale= TRUE, cost=0.05)
+plot(dating.svm.2, train, like~attr)
+```
+
+As you can see, the result of the splitting is visually not conclusive. Moreover, we see overlapping data, so maybe another kernel will be more adapted.
+
+Let's investigate the Radial model 
+
+### 5.2 SVM e1071: Radial
+We will start with a basic model (cost=1 and gamma=1) and then observe the performance.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+set.seed(123)
+dating.svm.rad.1 <- svm(decision~., data=train, kernel="radial", scale = TRUE,
+                        cost=1 ,gamma=1)
+print(dating.svm.rad.1)
+```
+
+The Number of Support Vectors is 4955, that represent 98% of the training set. We should be careful with those results, they might be exposed to overfitting. 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+set.seed(123)
+test_pred <- predict(dating.svm.rad.1, test, type='class')
+conf <- confusionMatrix(test_pred, test.truth, positive='1')
+conf$table
+acc<-round(conf$overall["Accuracy"]*100,2)
+sens<-round(conf$byClass["Sensitivity"]*100,2)
+spec<-round(conf$byClass["Specificity"]*100,2)
+tab<-matrix(c(acc,sens,spec), ncol=3)
+colnames(tab)<-c("Accuracy [%]","Sensitivity [%]","Specificity [%]")
+rownames(tab)<-c("")
+tab<-as.table(tab)
+tab
+```
+
+As we can see the results are not as good as the linear kernel, plus the sensitivity is under 50%. We improved the model with the Tune function, we ran the code chunk with different value for cost and gamma. Accordingly, the optimal parameters are cost=1 and gamma=0.25.
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+set.seed(123)
+tune.2 <- tune(svm, decision~., data = train, kernel = "radial",
+                 ranges = list(cost = 1,
+                               gamma = c(0.125,0.25,0.5)))
+summary(tune.2)
+```
+ 
+```{r message=FALSE, warning=FALSE, include=FALSE}
+set.seed(123)
+dating.svm.rad.2 <- svm(decision~., data=train, kernel="radial", scale = TRUE,
+                        cost=1 ,gamma=0.25)
+print(dating.svm.rad.2)
+```
+
+The number of Support Vector Machine is 3464 lower than before, so the model is indeed improved and we reduce the overfitting risk.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+set.seed(123)
+test_pred <- predict(dating.svm.rad.2, test, type='class')
+conf <- confusionMatrix(test_pred, test.truth, positive='1')
+conf$table
+acc<-round(conf$overall["Accuracy"]*100,2)
+sens<-round(conf$byClass["Sensitivity"]*100,2)
+spec<-round(conf$byClass["Specificity"]*100,2)
+tab<-matrix(c(acc,sens,spec), ncol=3)
+colnames(tab)<-c("Accuracy [%]","Sensitivity [%]","Specificity [%]")
+rownames(tab)<-c("")
+tab<-as.table(tab)
+tab
+```
+
+The overall accuracy is better than the previous model with radial kernel. 
+
+### 5.3 General Conclusion on Support Vector Machine
+SVM model yield in overall very good result, slightly better than GLM model. We applied two different kernels, linear and radial. The linear kernel is very convenient due to its simplicity compared to the radial kernel. Hence, the processing time with linear kernel is shorter. There is still other kernel to apply and other packages to try. But according to our data, we think that applying SVM models is not optimal. As mention before, our data are mainly qualitative variables, and rely on subjective measures, therefore the data are exposed to noise (overlapping classes). It is hard for this algorithm to find a clear structure in such abstract process as partner selection (social psychology). Plus, SVM models do not provide probability estimates, hence we cannot build knowledge to help our clients in decision process or partner selection.  
+
+**Pros SVM model:**
+
+* *Performance*: better than GLM models
+* *Improvement*: easy to improve and different methods 
+* *Speed*: fast with our data set
+
+**Cons SVM model:**
+
+* *Overfitting*: high risk 
+* *Overlapping*: noisy data, unclear margin separation
+* *No probability estimates*: interpretation not possible
+
+#### Performance summary
+
+info          | GLM        | SVM Linear   | SVM Radial   |  
+------------- | ---------- | ------------ | ------------ |
+Accuracy:     | 77.79 %    | 78.18  %     | **80.49 %**  |
+Sensitivity:  | 69.47 %    | 77.02  %     | **78.07 %**  |
+Specificity:  | **84.69 %**|  79.15 %     | 82.51 %      |
+
+**Best model:** SVM radial (cost=1, gamma=0.25)
+
